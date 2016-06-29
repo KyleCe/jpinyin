@@ -1,26 +1,70 @@
 package com.github.stuxuhai.jpinyin;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 
-/**
- * 汉字转拼音类
- *
- * @author stuxuhai (dczxxuhai@gmail.com)
- */
 public final class PinyinHelper {
-    private static final Map<String, String> PINYIN_TABLE = PinyinResource.getPinyinResource();
-    private static final Map<String, String> MUTIL_PINYIN_TABLE = PinyinResource.getMutilPinyinResource();
+    private static final Map<String, String> PINYIN_TABLE = getResource("/data/pinyin.db");
+    private static final Map<String, String> MUTIL_PINYIN_TABLE = getResource("/data/mutil_pinyin.db");
     private static final String PINYIN_SEPARATOR = ","; // 拼音分隔符
     private static final char CHINESE_LING = '〇';
     private static final String ALL_UNMARKED_VOWEL = "aeiouv";
     private static final String ALL_MARKED_VOWEL = "āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ"; // 所有带声调的拼音字母
 
-    private PinyinHelper() {}
+    private static final String CHINESE_REGEX = "[\\u4e00-\\u9fa5]";
+    private static final Map<String, String> CHINESE_MAP = getResource("/data/chinese.db");
+
+    private enum PinyinFormat {
+        WITH_TONE_MARK, WITHOUT_TONE, WITH_TONE_NUMBER
+    }
+
+    /**
+     * 获取字符串对应拼音的首字母
+     *
+     * @param str 需要转换的字符串
+     * @return 对应拼音的首字母
+     */
+    public static String getShortPinyin(String str) {
+        String separator = "#"; // 使用#作为拼音分隔符
+        StringBuilder sb = new StringBuilder();
+
+        char[] charArray = new char[str.length()];
+        for (int i = 0, len = str.length(); i < len; i++) {
+            char c = str.charAt(i);
+
+            // 首先判断是否为汉字或者〇，不是的话直接将该字符返回
+            if (!isChinese(c) && c != CHINESE_LING) {
+                charArray[i] = c;
+            } else {
+                int j = i + 1;
+                sb.append(c);
+
+                // 搜索连续的汉字字符串
+                while (j < len && (isChinese(str.charAt(j)) || str.charAt(j) == CHINESE_LING)) {
+                    sb.append(str.charAt(j));
+                    j++;
+                }
+                String hanziPinyin = convertToPinyinString(sb.toString(), separator, PinyinFormat.WITHOUT_TONE);
+                String[] pinyinArray = hanziPinyin.split(separator);
+                for (String string : pinyinArray) {
+                    charArray[i] = string.charAt(0);
+                    i++;
+                }
+                i--;
+                sb.setLength(0);
+            }
+        }
+        return String.valueOf(charArray);
+    }
 
     /**
      * 将带声调格式的拼音转换为数字代表声调格式的拼音
-     * 
+     *
      * @param pinyinArrayString 带声调格式的拼音
      * @return 数字代表声调格式的拼音
      */
@@ -54,7 +98,7 @@ public final class PinyinHelper {
 
     /**
      * 将带声调格式的拼音转换为不带声调格式的拼音
-     * 
+     *
      * @param pinyinArrayString 带声调格式的拼音
      * @return 不带声调的拼音
      */
@@ -79,7 +123,7 @@ public final class PinyinHelper {
 
     /**
      * 将带声调的拼音格式化为相应格式的拼音
-     * 
+     *
      * @param pinyinString 带声调的拼音
      * @param pinyinFormat 拼音格式：WITH_TONE_NUMBER--数字代表声调，WITHOUT_TONE--不带声调，WITH_TONE_MARK--带声调
      * @return 格式转换后的拼音
@@ -97,8 +141,8 @@ public final class PinyinHelper {
 
     /**
      * 将单个汉字转换为相应格式的拼音
-     * 
-     * @param c 需要转换成拼音的汉字
+     *
+     * @param c            需要转换成拼音的汉字
      * @param pinyinFormat 拼音格式：WITH_TONE_NUMBER--数字代表声调，WITHOUT_TONE--不带声调，WITH_TONE_MARK--带声调
      * @return 汉字的拼音
      */
@@ -111,30 +155,20 @@ public final class PinyinHelper {
     }
 
     /**
-     * 将单个汉字转换成带声调格式的拼音
-     * 
-     * @param c 需要转换成拼音的汉字
-     * @return 字符串的拼音
-     */
-    public static String[] convertToPinyinArray(char c) {
-        return convertToPinyinArray(c, PinyinFormat.WITH_TONE_MARK);
-    }
-
-    /**
      * 将字符串转换成相应格式的拼音
-     * 
-     * @param str 需要转换的字符串
-     * @param separator 拼音分隔符
+     *
+     * @param str          需要转换的字符串
+     * @param separator    拼音分隔符
      * @param pinyinFormat 拼音格式：WITH_TONE_NUMBER--数字代表声调，WITHOUT_TONE--不带声调，WITH_TONE_MARK--带声调
      * @return 字符串的拼音
      */
     public static String convertToPinyinString(String str, String separator, PinyinFormat pinyinFormat) {
-        str = ChineseHelper.convertToSimplifiedChinese(str);
+        str = convertToSimplifiedChinese(str);
         StringBuilder sb = new StringBuilder();
         for (int i = 0, len = str.length(); i < len; i++) {
             char c = str.charAt(i);
             // 判断是否为汉字或者〇
-            if (ChineseHelper.isChinese(c) || c == CHINESE_LING) {
+            if (isChinese(c) || c == CHINESE_LING) {
                 // 多音字识别处理
                 boolean isFoundFlag = false;
                 int rightMove = 3;
@@ -168,7 +202,7 @@ public final class PinyinHelper {
                 }
             } else {
                 sb.append(c);
-                if ((i + 1) < len && ChineseHelper.isChinese(str.charAt(i + 1))) {
+                if ((i + 1) < len && isChinese(str.charAt(i + 1))) {
                     sb.append(separator);
                 }
             }
@@ -177,68 +211,51 @@ public final class PinyinHelper {
         return sb.toString();
     }
 
-    /**
-     * 将字符串转换成带声调格式的拼音
-     * 
-     * @param str 需要转换的字符串
-     * @param separator 拼音分隔符
-     * @return 转换后带声调的拼音
-     */
-    public static String convertToPinyinString(String str, String separator) {
-        return convertToPinyinString(str, separator, PinyinFormat.WITH_TONE_MARK);
+    protected static Map<String, String> getResource(String resourceName) {
+        Map<String, String> map = new HashMap<String, String>();
+        try {
+            InputStream is = PinyinHelper.class.getResourceAsStream(resourceName);
+            BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            String line = null;
+            while ((line = br.readLine()) != null) {
+                String[] tokens = line.trim().split("=");
+                map.put(tokens[0], tokens[1]);
+            }
+            br.close();
+        } catch (IOException e) {
+
+        }
+
+        return map;
     }
 
-    /**
-     * 判断一个汉字是否为多音字
-     * 
-     * @param c 汉字
-     * @return 判断结果，是汉字返回true，否则返回false
-     */
-    public static boolean hasMultiPinyin(char c) {
-        String[] pinyinArray = convertToPinyinArray(c);
-        if (pinyinArray != null && pinyinArray.length > 1) {
-            return true;
+    public static char convertToSimplifiedChinese(char c) {
+        String simplifiedChinese = CHINESE_MAP.get(String.valueOf(c));
+        if (simplifiedChinese != null) {
+            return simplifiedChinese.charAt(0);
+        }
+        return c;
+    }
+
+    public static String convertToSimplifiedChinese(String str) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0, len = str.length(); i < len; i++) {
+            char c = str.charAt(i);
+            sb.append(convertToSimplifiedChinese(c));
+        }
+        return sb.toString();
+    }
+
+    public static boolean isChinese(char c) {
+        return '〇' == c || String.valueOf(c).matches(CHINESE_REGEX);
+    }
+
+    public static boolean containsChinese(String str) {
+        for (int i = 0, len = str.length(); i < len; i++) {
+            if (isChinese(str.charAt(i))) {
+                return true;
+            }
         }
         return false;
     }
-
-    /**
-     * 获取字符串对应拼音的首字母
-     * 
-     * @param str 需要转换的字符串
-     * @return 对应拼音的首字母
-     */
-    public static String getShortPinyin(String str) {
-        String separator = "#"; // 使用#作为拼音分隔符
-        StringBuilder sb = new StringBuilder();
-
-        char[] charArray = new char[str.length()];
-        for (int i = 0, len = str.length(); i < len; i++) {
-            char c = str.charAt(i);
-
-            // 首先判断是否为汉字或者〇，不是的话直接将该字符返回
-            if (!ChineseHelper.isChinese(c) && c != CHINESE_LING) {
-                charArray[i] = c;
-            } else {
-                int j = i + 1;
-                sb.append(c);
-
-                // 搜索连续的汉字字符串
-                while (j < len && (ChineseHelper.isChinese(str.charAt(j)) || str.charAt(j) == CHINESE_LING)) {
-                    sb.append(str.charAt(j));
-                    j++;
-                }
-                String hanziPinyin = convertToPinyinString(sb.toString(), separator, PinyinFormat.WITHOUT_TONE);
-                String[] pinyinArray = hanziPinyin.split(separator);
-                for (String string : pinyinArray) {
-                    charArray[i] = string.charAt(0);
-                    i++;
-                }
-                i--;
-                sb.setLength(0);
-            }
-        }
-        return String.valueOf(charArray);
-    }
-
 }
